@@ -22,6 +22,7 @@ from zerver.lib.test_classes import (
     ZulipTestCase,
 )
 from zerver.lib.test_runner import slow
+from zerver.lib import markdown_diff
 from zerver.models import (
     realm_in_local_realm_filters_cache,
     flush_per_request_caches,
@@ -207,6 +208,12 @@ class BugdownMiscTest(ZulipTestCase):
         self.assertEqual(user['email'], hamlet.email)
 
 class BugdownTest(ZulipTestCase):
+
+    def assertEqual(self, first, second, msg=None):
+        if first != second:
+            raise AssertionError("Actual and expected outputs do not match; showing diff.\n" +
+                                 markdown_diff.diff_strings(first, second) + msg)
+
     def load_bugdown_tests(self) -> Tuple[Dict[Text, Any], List[List[Text]]]:
         test_fixtures = {}
         data_file = open(os.path.join(os.path.dirname(__file__), '../fixtures/markdown_test_cases.json'), 'r')
@@ -231,6 +238,7 @@ class BugdownTest(ZulipTestCase):
 
             print("Running Bugdown test %s" % (name,))
             self.assertEqual(converted, test['expected_output'])
+            # self.assertEqual(converted, test['expected_output'])
 
         def replaced(payload: Text, url: Text, phrase: Text='') -> Text:
             target = " target=\"_blank\""
