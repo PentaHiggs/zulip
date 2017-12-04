@@ -54,6 +54,10 @@ module.prototype.hot = {
     accept: noop,
 };
 
+// Set up improved markdown diff
+var mdiff = require('./mdiff.js');
+global.assert_equal_markdown = mdiff.assert_equal_markdown;
+
 output.start_writing();
 
 files.forEach(function (file) {

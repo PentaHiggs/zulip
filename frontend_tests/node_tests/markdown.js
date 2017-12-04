@@ -183,7 +183,7 @@ var bugdown_data = JSON.parse(fs.readFileSync(path.join(__dirname, '../../zerver
         } else if (test.backend_only_rendering) {
             assert.equal(markdown.contains_backend_only_syntax(test.input), true);
         } else {
-            assert.equal(test.expected_output, output);
+            global.assert_equal_markdown(test.expected_output, output);
         }
     });
 }());
