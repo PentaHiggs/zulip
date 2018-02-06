@@ -158,6 +158,23 @@ ResultWithFamily = NamedTuple('ResultWithFamily', [
 def walk_tree_with_family(root: Element,
                           processor: Callable[[Element], Optional[_T]]
                           ) -> List[ResultWithFamily]:
+    """
+    Traverse a tree with root Element 'root' in breadth-first order.
+
+    Return a list of convenient ResultWithFamily objects, containing both ancestry
+    information on each element, and the results of the function 'processor'
+    applied to each element traversed.
+
+    Positional Arguments:
+    root -- Root Element of tree to be traversed in breadth-first order
+    processor -- A function to be applied to the traversed elements of the tree.
+
+    Returns a list of ResultWithFamily objects in order of traversal.  These objects are
+    named tuples consisting of the result 'result' (which may be None), and an ElementFamily
+    object 'family'.  An ElementFamily is a named tuple containing the Element's parent,
+    'parent', it's parent's parent, 'grandparent' (which may be None if it does not exist),
+    and the traversed Element itself, the 'child'.
+    """
     results = []
 
     queue = deque([{'parent': None, 'value': root}])
@@ -750,6 +767,29 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
         return None
 
     def handle_image_inlining(self, root: Element, found_url: ResultWithFamily) -> None:
+        """
+        Handles image inlining for hyperlinks.
+
+        The the hyperlink Element's parents, grandparent's, and parent's siblings (uncles,
+        for brevity) are analyzed in order to determine proper placement of the inlined
+        image.  The inlining logic is as follows:
+
+        * If an image link appears in a paragraph, add inline image preview at the end,
+        after any previous image links from the same paragraph.
+            * If a paragraph consists only of the link, and is not a named link,
+            delete the paragraph afterwards.
+        * If an image link appears as a bullet list item, add inline image preview at
+        the end, after any previous image links from the same bullet list item.
+            * If an item consists of only an image link, and is not a named link,
+            delete the link.
+        * If none of the above criteria match for whatever reason, add inline image to
+        root, as last child
+
+        Positional arguments:
+        root -- Root Element of etree reprsenting markdown being proceessed
+        found_url -- ResultWithFamily containing the ElementFamily of a found image
+        link, and a tuple consisting of the link url and link text as the 'result'
+        """
         grandparent = found_url.family.grandparent
         parent = found_url.family.parent
         ahref_element = found_url.family.child
@@ -761,10 +801,14 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
 
         if parent.tag == 'li':
             add_a(parent, self.get_actual_image_url(url), url, title=text)
+
+            # If hyperlink is by itself, and link is not named, delete.
             if not parent.text and not ahref_element.tail and url_eq_text:
                 parent.remove(ahref_element)
 
         elif parent.tag == 'p':
+            # Locate where paragraph resides in tree for proper insertion
+            # of inline image *after* the paragraph later.
             parent_index = None
             for index, uncle in enumerate(grandparent.getchildren()):
                 if uncle is parent:
@@ -772,15 +816,15 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
                     break
 
             if parent_index is not None:
-                ins_index = self.find_proper_insertion_index(grandparent, parent, parent_index)
+                ins_index = self.find_proper_insertion_index(parent, grandparent, parent_index)
                 add_a(grandparent, actual_url, url, title=text, insertion_index=ins_index)
 
             else:
                 # We're not inserting after parent, since parent not found.
-                # Append to end of list of grandparent's children as normal
+                # Append inline image to root, as its last child.
                 add_a(grandparent, actual_url, url, title=text)
 
-            # If link is alone in a paragraph, delete paragraph containing it
+            # If link is alone in a paragraph, and is not named, delete paragraph containing it
             if (len(parent.getchildren()) == 1 and
                     (not parent.text or parent.text == "\n") and
                     not ahref_element.tail and
@@ -788,35 +832,63 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
                 grandparent.remove(parent)
 
         else:
-            # If none of the above criteria match, fall back to old behavior
+            # If none of the above criteria match, just add inlined image to end
             add_a(root, actual_url, url, title=text)
 
-    def find_proper_insertion_index(self, grandparent: Element, parent: Element,
-                                    parent_index_in_grandparent: int) -> int:
-        # If there are several inline images from same paragraph, ensure that
-        # they are in correct (and not opposite) order by inserting after last
-        # inline image from paragraph 'parent'
+    def find_proper_insertion_index(self, containing_element: Element, parent: Element,
+                                    element_index_in_parent: int) -> int:
+        """
+        Find proper location for insertion of inlined image.
 
-        uncles = grandparent.getchildren()
-        parent_links = [ele.attrib['href'] for ele in parent.iter(tag="a")]
-        insertion_index = parent_index_in_grandparent
+        If there are several inline images from the same paragraph / list item
+        (will only mention paragraphs from now on, but this all applies to list
+        items as well), we want to ensure that they appear inlined after the
+        paragraph in the order that they appeared as links within the paragraph.
+        Instead of keeping state to accomplish this, this method examines image
+        elements after the paragraph and links within the paragraph to determine
+        the proper location of the next inlined image, which is after previous
+        inlined images.
 
+        Positional Arguments:
+        containing_element -- Element representing either a paragraph or list item
+        for which we wish to determine proper inline image placement after.
+        parent -- Parent Element of containing_element.
+        element_index_in_parent -- Index of containing_element in the Element parent.
+        Provided to the function so that it doesn't need to be recalculated.
+
+        Returns proper insertion index in the Element parent for the next inline image
+        sourced from the paragraph / list item containing_element.
+        """
+
+        siblings = parent.getchildren()  # This list has containing_element as an element
+        containing_element_link_texts = [ele.attrib['href'] for ele in
+                                         containing_element.iter(tag="a")]
+        insertion_index = element_index_in_parent
+
+        # Loop through the children of parent, starting with the position immediately
+        # after the containing_element (either a paragraph or list item), until either
+        # the last child or an element that is not an inlined image is found.
         while True:
             insertion_index += 1
-            if insertion_index >= len(uncles):
+            if insertion_index >= len(siblings):
+                # We have reached the end, there is no need to look further
                 return insertion_index
 
-            uncle = uncles[insertion_index]
+            sibling = siblings[insertion_index]
             inline_image_classes = ['message_inline_image', 'message_inline_ref']
+
+            # If element is not an inlined image, we are done.
             if (
-                uncle.tag != 'div' or
-                'class' not in uncle.keys() or
-                uncle.attrib['class'] not in inline_image_classes
+                sibling.tag != 'div' or
+                'class' not in sibling.keys() or
+                sibling.attrib['class'] not in inline_image_classes
             ):
                 return insertion_index
 
-            uncle_link = list(uncle.iter(tag="a"))[0].attrib['href']
-            if uncle_link not in parent_links:
+            # If element is an inline image, but it is not sourced from the containing_element,
+            # then it is fine to insert here.
+            sibling_link_text = list(sibling.iter(tag="a"))[0].attrib['href']
+            if sibling_link_text not in containing_element_link_texts:
                 return insertion_index
 
     def run(self, root: Element) -> None:
