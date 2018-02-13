@@ -146,47 +146,6 @@ def walk_tree(root: Element,
 
     return results
 
-ElementFamily = NamedTuple('ElementFamily', [
-    ('grandparent', Optional[Element]),
-    ('parent', Element),
-    ('child', Element)
-])
-
-ResultWithFamily = NamedTuple('ResultWithFamily', [
-    ('family', ElementFamily),
-    ('result', Any)
-])
-
-def walk_tree_with_family(root: Element,
-                          processor: Callable[[Element], Optional[_T]]
-                          ) -> List[ResultWithFamily]:
-    results = []
-
-    queue = deque([{'parent': None, 'value': root}])
-    while queue:
-        currElementPair = queue.popleft()
-        for child in currElementPair['value'].getchildren():
-            if child.getchildren():
-                queue.append({'parent': currElementPair, 'value': child})  # type: ignore  # Lack of Deque support in typing module for Python 3.4.3
-            result = processor(child)
-            if result is not None:
-                if currElementPair['parent']:
-                    grandparent = currElementPair['parent']['value']
-                else:
-                    grandparent = None
-                family = ElementFamily(
-                    grandparent=grandparent,
-                    parent=currElementPair['value'],
-                    child=child
-                )
-
-                results.append(ResultWithFamily(
-                    family=family,
-                    result=result
-                ))
-
-    return results
-
 # height is not actually used
 def add_a(
         root: Element,
@@ -197,7 +156,7 @@ def add_a(
         class_attr: Text="message_inline_image",
         data_id: Optional[Text]=None,
         insertion_index: Optional[int]=None
-) -> None:
+) -> Element:
     title = title if title is not None else url_filename(link)
     title = title if title else ""
     desc = desc if desc is not None else ""
@@ -224,6 +183,8 @@ def add_a(
         title_div.text = title
         desc_div = markdown.util.etree.SubElement(summary_div, "desc")
         desc_div.set("class", "message_inline_image_desc")
+
+    return div
 
 def add_embed(root: Element, link: Text, extracted_data: Dict[Text, Any]) -> None:
     container = markdown.util.etree.SubElement(root, "div")
@@ -744,27 +705,28 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
             logging.warning(traceback.format_exc())
             return None
 
-    def get_url_data(self, e: Element) -> Optional[Tuple[Text, Text]]:
+    def get_url_data(self, e: Element) -> Optional[Tuple[Text, Text, Element]]:
         if e.tag == "a":
             if e.text is not None:
-                return (e.get("href"), e.text)
-            return (e.get("href"), e.get("href"))
+                return (e.get("href"), e.text, e)
+            return (e.get("href"), e.get("href"), e)
         return None
 
-    def handle_image_inlining(self, root: Element, found_url: ResultWithFamily) -> None:
-        grandparent = found_url.family.grandparent
-        parent = found_url.family.parent
-        ahref_element = found_url.family.child
-        (url, text) = found_url.result
+    def handle_image_inlining(self, root: Element, url: Text, text: Text, ahref_element: Element,
+                              parents_dict: Dict[Element, Optional[Element]]) -> None:
+        parent = parents_dict[ahref_element]
+        grandparent = parents_dict[parent]
         actual_url = self.get_actual_image_url(url)
 
         # url != text usually implies a named link, which we opt not to remove
         url_eq_text = (url == text)
 
         if parent.tag == 'li':
-            add_a(parent, self.get_actual_image_url(url), url, title=text)
+            parents_dict[add_a(parent, actual_url, url, title=text)] = parent
+
             if not parent.text and not ahref_element.tail and url_eq_text:
                 parent.remove(ahref_element)
+                del parents_dict[ahref_element]
 
         elif parent.tag == 'p':
             parent_index = None
@@ -775,12 +737,14 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
 
             if parent_index is not None:
                 ins_index = self.find_proper_insertion_index(grandparent, parent, parent_index)
-                add_a(grandparent, actual_url, url, title=text, insertion_index=ins_index)
+                parents_dict[add_a(
+                    grandparent, actual_url, url, title=text, insertion_index=ins_index
+                )] = grandparent
 
             else:
                 # We're not inserting after parent, since parent not found.
                 # Append to end of list of grandparent's children as normal
-                add_a(grandparent, actual_url, url, title=text)
+                parents_dict[add_a(grandparent, actual_url, url, title=text)] = grandparent
 
             # If link is alone in a paragraph, delete paragraph containing it
             if (len(parent.getchildren()) == 1 and
@@ -788,10 +752,11 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
                     not ahref_element.tail and
                     url_eq_text):
                 grandparent.remove(parent)
+                del parents_dict[parent]
 
         else:
             # If none of the above criteria match, fall back to old behavior
-            add_a(root, actual_url, url, title=text)
+            parents_dict[add_a(root, actual_url, url, title=text)] = root
 
     def find_proper_insertion_index(self, grandparent: Element, parent: Element,
                                     parent_index_in_grandparent: int) -> int:
@@ -821,9 +786,21 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
             if uncle_link not in parent_links:
                 return insertion_index
 
+    def find_parents(self, root: Element) -> Dict[Element, Optional[Element]]:
+        """ Recursively builds a dictionary of element parents, starting at root """
+        parents_dict = {}
+        for child in root.getchildren():
+            parents_dict[child] = root
+            parents_dict.update(self.find_parents(child))
+
+        return parents_dict
+
     def run(self, root: Element) -> None:
         # Get all URLs from the blob
-        found_urls = walk_tree_with_family(root, self.get_url_data)
+        found_urls = walk_tree(root, self.get_url_data)
+
+        # Get list of element parents
+        parents_dict = self.find_parents(root)
 
         # If there are more than 5 URLs in the message, don't do inline previews
         if len(found_urls) == 0 or len(found_urls) > 5:
@@ -831,8 +808,7 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
 
         rendered_tweet_count = 0
 
-        for found_url in found_urls:
-            (url, text) = found_url.result
+        for (url, text, link_element) in found_urls:
             dropbox_image = self.dropbox_image(url)
 
             if dropbox_image is not None:
@@ -847,7 +823,7 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
                       class_attr=class_attr)
                 continue
             if self.is_image(url):
-                self.handle_image_inlining(root, found_url)
+                self.handle_image_inlining(root, url, text, link_element, parents_dict)
                 continue
             if get_tweet_id(url) is not None:
                 if rendered_tweet_count >= self.TWITTER_MAX_TO_PREVIEW:
