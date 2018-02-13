@@ -714,6 +714,34 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
 
     def handle_image_inlining(self, root: Element, url: Text, text: Text, ahref_element: Element,
                               parents_dict: Dict[Element, Optional[Element]]) -> None:
+        """
+        Handle inline image previews for hyperlinks.
+
+        The hyperlink Element's parents, grandparents, and parent's siblings (termed
+        uncles for the sake of brevity) are analyed in order to determine proper
+        placement of the inlined image.  The inlining logic is as follows:
+
+        * If an image link appears in a paragraph or bullet list item and is surrounded
+        only by either line breaks, the end, or the beginning of the paragraph or bullet
+        list item, then the link is removed and replaced with an inline image preview,
+        as long as the link is not named.  If these criteria are not met, then
+            * If the image link appears in a paragraph, add inline image preview at
+            the end, after the paragraph and after any previous image links from the
+            same paragraph.
+            * Or, if image is in a bullet list item, add inline image preview at
+            the end of the list item, and after any previous image links from the same
+            bullet list item.
+        * If none of the above criteria match for whatever reason, add inline image to
+        root Element, as last child.
+
+        Positional arguments:
+        root -- Root Element of tree representing markdown being processed
+        url -- Url of the image hyperlink to receive previews
+        text -- Text of the image hyperlink to receive previews
+        ahref_element -- Element corresponding to image hyperlink
+        parents_dict -- Dictionary containing parents of elements in the tree
+        """
+
         parent = parents_dict[ahref_element]
         grandparent = parents_dict[parent]
         actual_url = self.get_actual_image_url(url)
@@ -721,22 +749,99 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
         # url != text usually implies a named link, which we opt not to remove
         url_eq_text = (url == text)
 
-        if parent.tag == 'li':
-            parents_dict[add_a(parent, actual_url, url, title=text)] = parent
+        link_index_within_parent = None
+        for index, sibling in enumerate(parent.getchildren()):
+            if sibling is ahref_element:
+                link_index_within_parent = index
+                break
 
-            if not parent.text and not ahref_element.tail and url_eq_text:
+        if parent.tag == 'li':
+            if self.is_on_own_line(ahref_element, parent, link_index_within_parent) and url_eq_text:
                 parent.remove(ahref_element)
-                del parents_dict[ahref_element]
+                parents_dict[add_a(
+                    parent, actual_url, url, title=text, insertion_index=link_index_within_parent
+                )] = parent
+            else:
+                parents_dict[add_a(parent, actual_url, url, title=text)] = parent
 
         elif parent.tag == 'p':
-            parent_index = None
-            for index, uncle in enumerate(grandparent.getchildren()):
-                if uncle is parent:
-                    parent_index = index
+            # Locate where paragraph presides with respect to other children of grandparent
+            paragraph_index_within_grandparent = None
+            for index, ele in enumerate(grandparent.getchildren()):
+                if ele is parent:
+                    paragraph_index_within_grandparent = index
                     break
 
-            if parent_index is not None:
-                ins_index = self.find_proper_insertion_index(grandparent, parent, parent_index)
+            if self.is_on_own_line(ahref_element, parent, link_index_within_parent) and url_eq_text:
+                parent.remove(ahref_element)
+
+                # We wish to splice a paragraph such as
+                #
+                #     Lorem ipsum dolor sit amet,
+                #     https://images.com/image.jpg
+                #     consectetur adipscing elit
+                #
+                # into two paragraphs, with an inline image preview in between.
+                # The edge cases where the link is either at the top or bottom of
+                # the paragraph are handled separately first.
+                #
+                # In the case that the link is in the middle of the paragraph as above,
+                # the line breaks around the link are removed, instead being used
+                # as markers for where to split the old paragraph into new ones.
+
+                if link_index_within_parent == 0:
+                    parents_dict[add_a(
+                        grandparent, actual_url, url, title=text,
+                        insertion_index=paragraph_index_within_grandparent
+                    )] = grandparent
+                    if not parent.text and len(parent.getchildren()) == 0:
+                        grandparent.remove(parent)
+
+                elif link_index_within_parent == len(parent.getchildren()):
+                    parents_dict[add_a(
+                        grandparent, actual_url, url, title=text,
+                        insertion_index=paragraph_index_within_grandparent
+                    )] = grandparent
+                    if not parent.text and len(parent.getchildren()) == 0:
+                        grandparent.remove(parent)
+
+                else:
+                    # We want to remove the linebreak before the link as well, paragraph
+                    # will now be ending there instead.
+                    elements_to_remove = parent.getchildren()[link_index_within_parent - 1:]
+                    for element in elements_to_remove:
+                        parent.remove(element)
+
+                    # Create inline image preview after source paragraph.
+                    parents_dict[add_a(
+                        grandparent, actual_url, url, title=text,
+                        insertion_index=paragraph_index_within_grandparent + 1
+                    )] = grandparent
+
+                    # Create paragraph for leftovers
+                    leftovers = markdown.util.etree.Element("p")
+                    leftovers.tail = "\n"
+                    grandparent.insert(paragraph_index_within_grandparent + 2, leftovers)
+                    parents_dict[leftovers] = grandparent
+
+                    br_after_link = elements_to_remove[1]
+                    if br_after_link.tail.endswith("\n"):
+                        leftovers.text = br_after_link.tail[:-1]
+                    else:
+                        leftovers.text = br_after_link.tail
+                    for element in elements_to_remove[2:]:  # don't include either <br>
+                        leftovers.append(element)
+                        parents_dict[element] = leftovers
+
+                    # Remove any empty paragraphs
+                    for par in [parent, leftovers]:
+                        if len(par.getchildren()) == 0 and not par.text:
+                            grandparent.remove(parent)
+
+            # Behavior for if the link is not on its own line
+            elif paragraph_index_within_grandparent is not None:
+                ins_index = self.find_proper_insertion_index(parent, grandparent,
+                                                             paragraph_index_within_grandparent)
                 parents_dict[add_a(
                     grandparent, actual_url, url, title=text, insertion_index=ins_index
                 )] = grandparent
@@ -746,24 +851,29 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
                 # Append to end of list of grandparent's children as normal
                 parents_dict[add_a(grandparent, actual_url, url, title=text)] = grandparent
 
-            # If link is alone in a paragraph, delete paragraph containing it
-            if (len(parent.getchildren()) == 1 and
-                    (not parent.text or parent.text == "\n") and
-                    not ahref_element.tail and
-                    url_eq_text):
-                grandparent.remove(parent)
-                del parents_dict[parent]
-
         else:
-            # If none of the above criteria match, fall back to old behavior
+            # We're not inserting after parent, since parent not found.
+            # Append inline image to root, as its last child
             parents_dict[add_a(root, actual_url, url, title=text)] = root
 
     def find_proper_insertion_index(self, grandparent: Element, parent: Element,
                                     parent_index_in_grandparent: int) -> int:
-        # If there are several inline images from same paragraph, ensure that
-        # they are in correct (and not opposite) order by inserting after last
-        # inline image from paragraph 'parent'
+        """
+        Determine proper placement of inline image preview after a paragraph
 
+        If there are several inline images from same paragraph, ensure that
+        they are in correct (and not opposite) order by inserting after last
+        inline image from paragraph 'parent'.
+
+        Positional arguments:
+        parent -- Paragraph Element in which link resides
+        grandparent -- Parent of the Paragraph Element within which image preview
+        is to be inserted.
+        parent_index_in_grandparent -- Index of parent paragraph Element in grandparent's
+        list of children.
+
+        Returns proper insertion index for inline image preview for use with add_a
+        """
         uncles = grandparent.getchildren()
         parent_links = [ele.attrib['href'] for ele in parent.iter(tag="a")]
         insertion_index = parent_index_in_grandparent
@@ -784,6 +894,95 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
 
             uncle_link = list(uncle.iter(tag="a"))[0].attrib['href']
             if uncle_link not in parent_links:
+                return insertion_index
+
+    def is_on_own_line(self, element: Element, parent: Element,
+                       element_index_in_parent: int) -> bool:
+        """
+        Return whether element is on its own line in parent
+
+        This is true whenever an element is flanked by either line breaks with no
+        following text, the end of the parent element, or the beginning of the
+        parent element.
+        """
+        siblings = parent.getchildren()
+
+        # Check preceding element
+        if element_index_in_parent != 0:
+            if (siblings[element_index_in_parent - 1].tag != 'br' or
+                    (siblings[element_index_in_parent - 1].tail != '' and
+                     siblings[element_index_in_parent - 1].tail != '\n')):
+                return False
+        else:
+            # This element is parent's first child.  Check if the paragraph contains text
+            if parent.text:
+                return False
+
+        # Check following element
+        if element_index_in_parent != len(siblings) - 1:
+            if siblings[element_index_in_parent + 1].tag != 'br':
+                return False
+
+        # Check that link has no following text
+        if element.tail:
+            return False
+
+        return True
+
+    def find_proper_insertion_index(self, containing_element: Element, parent: Element,
+                                    element_index_in_parent: int) -> int:
+        """
+        Find proper location for insertion of inlined image.
+
+        If there are several inline images from the same paragraph / list item
+        (will only mention paragraphs from now on, but this all applies to list
+        items as well), we want to ensure that they appear inlined after the
+        paragraph in the order that they appeared as links within the paragraph.
+        Instead of keeping state to accomplish this, this method examines image
+        elements after the paragraph and links within the paragraph to determine
+        the proper location of the next inlined image, which is after previous
+        inlined images.
+
+        Positional Arguments:
+        containing_element -- Element representing either a paragraph or list item
+        for which we wish to determine proper inline image placement after.
+        parent -- Parent Element of containing_element.
+        element_index_in_parent -- Index of containing_element in the Element parent.
+        Provided to the function so that it doesn't need to be recalculated.
+
+        Returns proper insertion index in the Element parent for the next inline image
+        sourced from the paragraph / list item containing_element.
+        """
+
+        siblings = parent.getchildren()  # This list has containing_element as an element
+        containing_element_link_texts = [ele.attrib['href'] for ele in
+                                         containing_element.iter(tag="a")]
+        insertion_index = element_index_in_parent
+
+        # Loop through the children of parent, starting with the position immediately
+        # after the containing_element (either a paragraph or list item), until either
+        # the last child or an element that is not an inlined image is found.
+        while True:
+            insertion_index += 1
+            if insertion_index >= len(siblings):
+                # We have reached the end, there is no need to look further
+                return insertion_index
+
+            sibling = siblings[insertion_index]
+            inline_image_classes = ['message_inline_image', 'message_inline_ref']
+
+            # If element is not an inlined image, we are done.
+            if (
+                sibling.tag != 'div' or
+                'class' not in sibling.keys() or
+                sibling.attrib['class'] not in inline_image_classes
+            ):
+                return insertion_index
+
+            # If element is an inline image, but it is not sourced from the containing_element,
+            # then it is fine to insert here.
+            sibling_link_text = list(sibling.iter(tag="a"))[0].attrib['href']
+            if sibling_link_text not in containing_element_link_texts:
                 return insertion_index
 
     def find_parents(self, root: Element) -> Dict[Element, Optional[Element]]:
