@@ -75,7 +75,12 @@ exports.render_typeahead_item = function (args) {
     return templates.render('typeahead_list_item', args);
 };
 
-var rendered = { persons: new Dict(), streams: new Dict(), user_groups: new Dict() };
+var rendered = {
+    persons: new Dict(),
+    streams: new Dict(),
+    topics: new Dict(),
+    user_groups: new Dict(),
+};
 
 exports.render_person = function (person) {
     if (person.special_item_text) {
@@ -127,6 +132,21 @@ exports.render_person_or_user_group = function (item) {
     return typeahead_helper.render_person(item);
 };
 
+
+exports.render_topic = function (topic, stream) {
+    var full_topic_name = stream.name + "/" + topic;
+
+    var html = rendered.topics.get(full_topic_name);
+    if (html === undefined) {
+        html = exports.render_typeahead_item({
+            primary: full_topic_name,
+        });
+        rendered.topics.set(full_topic_name, html);
+    }
+
+    return html;
+};
+
 exports.render_stream = function (stream) {
     var desc = stream.description;
     var short_desc = desc.substring(0, 35);
@@ -147,6 +167,7 @@ exports.render_stream = function (stream) {
 
     return html;
 };
+
 
 exports.render_emoji = function (item) {
     var args = {
