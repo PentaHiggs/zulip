@@ -1015,7 +1015,17 @@ run_test('initialize', () => {
 run_test('begins_typeahead', () => {
 
     var begin_typehead_this = {options: {completions: {
-        emoji: true, mention: true, stream: true, syntax: true}}};
+        emoji: true, mention: true, stream: true, syntax: true, topic: true}}};
+
+    var denmark_topics = ['With Twisted Metal', 'acceptance', 'civil fears'];
+    var netherlands_topics = ['Amsterdam Events', 'rottingham pharmacies'];
+    ct.topics_seen_for = (stream_name) => {
+        var topic_names = {
+            Denmark: denmark_topics,
+            'The Netherlands': netherlands_topics,
+        };
+        return topic_names[stream_name] || [];
+    };
 
     function get_values(input, rest) {
         // Stub out split_at_cursor that uses $(':focus')
@@ -1131,6 +1141,17 @@ run_test('begins_typeahead', () => {
     assert_stream_list(" #s");
     assert_stream_list("test #D");
     assert_stream_list("test #**v");
+
+    assert_typeahead_equals("The Netherlands>", false);
+    assert_typeahead_equals("#The Netherlands >", false);
+    assert_typeahead_equals("#**The Netherlands** >", netherlands_topics);
+    assert_typeahead_equals("#>", false);
+    assert_typeahead_equals("#Sweden>", false);
+    assert_typeahead_equals("#Denmark >", false);
+    assert_typeahead_equals("#Denmark> ", denmark_topics);
+    assert_typeahead_equals("Denmark> ", false);
+    assert_typeahead_equals("Denmark >", false);
+    assert_typeahead_equals("#**Denmark**>", denmark_topics);
 
     assert_typeahead_equals("```", false);
     assert_typeahead_equals("``` ", false);

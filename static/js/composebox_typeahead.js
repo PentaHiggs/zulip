@@ -435,7 +435,8 @@ exports.compose_content_begins_typeahead = function (query) {
         return [].concat(persons, all_items, groups);
     }
 
-    if (this.options.completions.stream && current_token[0] === '#') {
+    if ((this.options.completions.stream || this.options.completions.topic) && current_token[0] === '#') {
+
         if (current_token.length === 1) {
             return false;
         }
@@ -450,9 +451,31 @@ exports.compose_content_begins_typeahead = function (query) {
             return false;
         }
 
-        this.completing = 'stream';
-        this.token = current_token;
-        return stream_data.get_unsorted_subs();
+        var index_of_gt = current_token.indexOf('>');
+        if (index_of_gt === -1 && this.options.completions.stream) {
+            this.completing = 'stream';
+            this.token = current_token;
+            return stream_data.get_unsorted_subs();
+        }
+
+        if (this.options.completions.topic) {
+            this.completing = 'topic';
+
+            var stream_name_part = current_token.slice(0, index_of_gt);
+            var other_part = current_token.slice(index_of_gt);
+            if (stream_name_part.endsWith('** ')) {
+                stream_name_part = stream_name_part.slice(0, -3);
+            } else if (stream_name_part.endsWith('**')) {
+                stream_name_part = stream_name_part.slice(0, -2);
+            }
+
+            current_token = stream_name_part + other_part;
+            this.token = current_token;
+
+            var topics_list = exports.topics_seen_for(stream_name_part);
+            return topics_list.length ? topics_list : false;
+        }
+
     }
     return false;
 };
