@@ -134,7 +134,7 @@ exports.render_person_or_user_group = function (item) {
 
 
 exports.render_topic = function (topic, stream) {
-    var full_topic_name = stream.name + "/" + topic;
+    var full_topic_name = stream.name + ">" + topic;
 
     var html = rendered.topics.get(full_topic_name);
     if (html === undefined) {

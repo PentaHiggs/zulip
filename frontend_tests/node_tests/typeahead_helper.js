@@ -501,19 +501,19 @@ run_test('render_topic', () => {
     var stream = {
         description: 'This is a test stream',
         stream_id: 49,
-        name: 'My Stream'
+        name: 'My Stream',
     };
 
-    global.templates.render = function(template_name, args) {
+    global.templates.render = function (template_name, args) {
         assert.equal(template_name, 'typeahead_list_item');
-        assert.equal(args.primary, stream.name + '/' + topic);
-        assert.equal(typeof(args.secondary), "undefined");
-        
-      rendered = true;
-      return 'typeahead-item-stub';
+        assert.equal(args.primary, stream.name + '>' + topic);
+        assert.equal(typeof args.secondary, "undefined");
+
+        rendered = true;
+        return 'typeahead-item-stub';
     };
-  assert.equal(th.render_topic(topic, stream), 'typeahead-item-stub');
-  assert(rendered);
+    assert.equal(th.render_topic(topic, stream), 'typeahead-item-stub');
+    assert(rendered);
 });
 
 run_test('render_emoji', () => {
