@@ -1152,6 +1152,8 @@ run_test('begins_typeahead', () => {
     assert_typeahead_equals("Denmark> ", false);
     assert_typeahead_equals("Denmark >", false);
     assert_typeahead_equals("#**Denmark**>", denmark_topics);
+    assert_typeahead_equals("#**Sweden**   >", false);
+    assert_typeahead_equals("#Denmark** >", false);
 
     assert_typeahead_equals("```", false);
     assert_typeahead_equals("``` ", false);
