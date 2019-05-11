@@ -133,15 +133,13 @@ exports.render_person_or_user_group = function (item) {
 };
 
 
-exports.render_topic = function (topic, stream) {
-    var full_topic_name = stream.name + ">" + topic;
-
-    var html = rendered.topics.get(full_topic_name);
+exports.render_topic = function (topic) {
+    var html = rendered.topics.get(topic);
     if (html === undefined) {
         html = exports.render_typeahead_item({
-            primary: full_topic_name,
+            primary: topic,
         });
-        rendered.topics.set(full_topic_name, html);
+        rendered.topics.set(topic, html);
     }
 
     return html;

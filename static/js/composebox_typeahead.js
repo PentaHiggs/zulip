@@ -487,6 +487,8 @@ exports.content_highlighter = function (item) {
         return typeahead_helper.render_person_or_user_group(item);
     } else if (this.completing === 'stream') {
         return typeahead_helper.render_stream(item);
+    } else if (this.completing === 'topic') {
+        return typeahead_helper.render_topic(item);
     } else if (this.completing === 'syntax') {
         return typeahead_helper.render_typeahead_item({ primary: item });
     }
