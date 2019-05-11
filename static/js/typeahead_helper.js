@@ -400,6 +400,11 @@ exports.sort_streams = function (matches, query) {
     return name_results.matches.concat(desc_results.matches.concat(desc_results.rest));
 };
 
+exports.sort_topics = function (matches, query) {
+    var sorted = exports.sorter(query, matches, function (x) {return x;});
+    return sorted;
+};
+
 exports.sort_recipientbox_typeahead = function (query, matches, current_stream) {
     // input_text may be one or more pm recipients
     var cleaned = exports.get_cleaned_pm_recipients(query);

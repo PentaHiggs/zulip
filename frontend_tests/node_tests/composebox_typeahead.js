@@ -1153,7 +1153,6 @@ run_test('begins_typeahead', () => {
     assert_typeahead_equals("Denmark >", false);
     assert_typeahead_equals("#**Denmark**>", denmark_topics);
     assert_typeahead_equals("#**Sweden**   >", false);
-    assert_typeahead_equals("#Denmark** >", false);
 
     assert_typeahead_equals("```", false);
     assert_typeahead_equals("``` ", false);
@@ -1280,6 +1279,7 @@ run_test('typeahead_results', () => {
     var people_with_all = global.people.get_realm_persons().concat(all_items);
     var all_mentions = people_with_all.concat(global.user_groups.get_realm_user_groups());
     var stream_list = [denmark_stream, sweden_stream, netherland_stream];
+    var topic_list = ['<&>', 'even more ice', 'furniture', 'ice', 'kronor', 'more ice'];
 
     function compose_typeahead_results(completing, items, token) {
         // items -> emoji array, token -> simulates text in input
@@ -1305,6 +1305,10 @@ run_test('typeahead_results', () => {
     }
     function assert_stream_matches(input, expected) {
         var returned = compose_typeahead_results('stream', stream_list, input);
+        assert.deepEqual(returned, expected);
+    }
+    function assert_topic_matches(input, expected) {
+        var returned = compose_typeahead_results('topic', topic_list, input);
         assert.deepEqual(returned, expected);
     }
 
@@ -1342,4 +1346,11 @@ run_test('typeahead_results', () => {
     assert_stream_matches('cold', [sweden_stream, denmark_stream]);
     assert_stream_matches('the ', [netherland_stream]);
     assert_stream_matches('city', [netherland_stream]);
+    // Autocomplete topic mentions by topic name.
+    assert_topic_matches('Kro', ['kronor']);
+    assert_topic_matches('<', ['<&>']);
+    assert_topic_matches('even m', ['even more ice']);
+    assert_topic_matches('more ice', ['more ice']);
+    assert_topic_matches('furniture ', []);
+    assert_topic_matches('ice', ['ice', 'even more ice', 'more ice']);
 });

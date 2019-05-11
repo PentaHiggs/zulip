@@ -511,6 +511,18 @@ run_test('render_topic', () => {
     assert(rendered);
 });
 
+run_test('sort_topics', () => {
+    var topic_list = ['ice', 'more ice', 'icey', 'iceland', '>ice', 'pumice'];
+    assert.deepEqual(th.sort_topics(topic_list, 'ice'), [
+        'ice',
+        'icey',
+        'iceland',
+        'more ice',
+        '>ice',
+        'pumice',
+    ]);
+});
+
 run_test('render_emoji', () => {
     // Test render_emoji with normal emoji.
     var rendered = false;

@@ -111,6 +111,12 @@ function query_matches_user_group_or_stream(query, user_group_or_stream) {
     return query_matches_source_attrs(query, user_group_or_stream, ["name", "description"], " ");
 }
 
+function query_matches_topic(query, topic) {
+    // Case-insensitive.
+    query = query.toLowerCase();
+    return query_matches_string(query, topic, " ");
+}
+
 function query_matches_person_or_user_group(query, item) {
     if (user_groups.is_user_group(item)) {
         return query_matches_user_group_or_stream(query, item);
@@ -566,6 +572,8 @@ exports.compose_content_matcher = function (item) {
         return query_matches_person_or_user_group(this.token, item);
     } else if (this.completing === 'stream') {
         return query_matches_user_group_or_stream(this.token, item);
+    } else if (this.completing === 'topic') {
+        return query_matches_topic(this.token, item);
     } else if (this.completing === 'syntax') {
         return query_matches_language(this.token, item);
     }
@@ -578,6 +586,8 @@ exports.compose_matches_sorter = function (matches) {
         return typeahead_helper.sort_people_and_user_groups(this.token, matches);
     } else if (this.completing === 'stream') {
         return typeahead_helper.sort_streams(matches, this.token);
+    } else if (this.completing === 'topic') {
+        return typeahead_helper.sort_topics(matches, this.token);
     } else if (this.completing === 'syntax') {
         return typeahead_helper.sort_languages(matches, this.token);
     }
