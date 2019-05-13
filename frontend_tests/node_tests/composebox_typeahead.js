@@ -372,6 +372,35 @@ run_test('content_typeahead_selected', () => {
     expected_value = '#**Sweden** ';
     assert.equal(actual_value, expected_value);
 
+    // topic
+
+    fake_this.completing = 'topic';
+    function test_topic(query, token, item, expected_value) {
+        fake_this.query = query;
+        fake_this.token = token;
+        actual_value = ct.content_typeahead_selected.call(fake_this, item);
+        assert.equal(actual_value, expected_value);
+    }
+
+    test_topic('#Sweden > Sto', 'Sto', 'Stockholm', '#**Sweden>Stockholm** ');
+    test_topic('#**Sweden** > Sto', 'Sto', 'Stockholm', '#**Sweden>Stockholm** ');
+    test_topic('#Sweden> S', 'S', 'Stockholm', '#**Sweden>Stockholm** ');
+    test_topic(
+        '#**OtherMention** otherText #Sweden> Stock',
+        'Swed',
+        'Stockholm',
+        '#**OtherMention** otherText #**Sweden>Stockholm** '
+    );
+
+    var test_query = 'Hashtags #Angle brackets >  #Sweden> St textAfterCaret>#';
+    fake_this.$element.caret = () => {return test_query.indexOf(' textAfterCaret>#');};
+    test_topic(
+        test_query,
+        'St',
+        'Stockholm',
+        'Hashtags #Angle brackets >  #**Sweden>Stockholm**  textAfterCaret>#'
+    );
+
     // syntax
     fake_this.completing = 'syntax';
 
@@ -716,6 +745,10 @@ run_test('initialize', () => {
         fake_this = { completing: 'stream', token: 'swed' };
         assert.equal(options.matcher.call(fake_this, sweden_stream), true);
         assert.equal(options.matcher.call(fake_this, denmark_stream), false);
+
+        fake_this = { completing: 'topic', token: 'sto' };
+        assert.equal(options.matcher.call(fake_this, 'Stockholm'), true);
+        assert.equal(options.matcher.call(fake_this, 'Denmark2'), false);
 
         fake_this = { completing: 'syntax', token: 'py' };
         assert.equal(options.matcher.call(fake_this, 'python'), true);
@@ -1200,6 +1233,7 @@ run_test('tokenizing', () => {
     assert.equal(ct.tokenize_compose_str("foo bar [#alic"), "#alic");
     assert.equal(ct.tokenize_compose_str("#foo @bar [#alic"), "#alic");
     assert.equal(ct.tokenize_compose_str("foo bar #alic"), "#alic");
+    assert.equal(ct.tokenize_compose_str("foo bar #alic > tpc1"), "#alic > tpc1");
     assert.equal(ct.tokenize_compose_str("foo bar @alic"), "@alic");
     assert.equal(ct.tokenize_compose_str("foo bar :smil"), ":smil");
     assert.equal(ct.tokenize_compose_str(":smil"), ":smil");

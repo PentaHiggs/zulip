@@ -114,6 +114,7 @@ function query_matches_user_group_or_stream(query, user_group_or_stream) {
 function query_matches_topic(query, topic) {
     // Case-insensitive.
     query = query.toLowerCase();
+    topic = topic.toLowerCase();
     return query_matches_string(query, topic, " ");
 }
 
@@ -468,15 +469,25 @@ exports.compose_content_begins_typeahead = function (query) {
             this.completing = 'topic';
 
             var stream_name_part = current_token.slice(0, index_of_gt);
-            var other_part = current_token.slice(index_of_gt);
+            var topic_part = current_token.slice(index_of_gt);
+
             if (stream_name_part.endsWith('** ')) {
                 stream_name_part = stream_name_part.slice(0, -3);
             } else if (stream_name_part.endsWith('**')) {
                 stream_name_part = stream_name_part.slice(0, -2);
             }
 
-            current_token = stream_name_part + other_part;
-            this.token = current_token;
+            if (topic_part.startsWith(' >')) {
+                topic_part = topic_part.substring(2);
+            } else {
+                topic_part = topic_part.substring(1);
+            }
+
+            if (topic_part.startsWith(' ')) {
+                topic_part = topic_part.substring(1);
+            }
+
+            this.token = topic_part;
 
             var topics_list = exports.topics_seen_for(stream_name_part);
             return topics_list.length ? topics_list : false;
@@ -538,6 +549,32 @@ exports.content_typeahead_selected = function (item) {
         }
         beginning += '#**' + item.name + '** ';
         $(document).trigger('streamname_completed.zulip', {stream: item});
+    } else if (this.completing === 'topic') {
+        beginning = beginning.substring(0, beginning.length - this.token.length - 1);
+
+        if (beginning.endsWith(' ')) {
+            beginning = beginning.substring(0, beginning.length - 1);
+        }
+
+        if (beginning.endsWith('**>')) {
+            beginning = beginning.substring(0, beginning.length - 3);
+        } else if (beginning.endsWith('** >')) {
+            beginning = beginning.substring(0, beginning.length - 4);
+        } else if (beginning.endsWith(' >')) {
+            beginning = beginning.substring(0, beginning.length - 2);
+        } else {
+            beginning = beginning.substring(0, beginning.length - 1);
+        }
+
+        if (beginning.lastIndexOf('#') !== beginning.lastIndexOf('#**')) {
+            // Stream name doesn't start with '#**'.  Fix this.
+            var stream_mention_beginning = beginning.lastIndexOf("#");
+            var after_stream_mention_start = beginning.substring(stream_mention_beginning + 1);
+            var rest_of_beginning = beginning.substring(0, stream_mention_beginning + 1);
+            beginning = rest_of_beginning + '**' + after_stream_mention_start;
+        }
+
+        beginning += '>' + item + '** ';
     } else if (this.completing === 'syntax') {
         // Isolate the end index of the triple backticks/tildes, including
         // possibly a space afterward
@@ -599,6 +636,7 @@ exports.initialize_compose_typeahead = function (selector) {
         emoji: true,
         stream: true,
         syntax: true,
+        topic: true,
     };
 
     $(selector).typeahead({
