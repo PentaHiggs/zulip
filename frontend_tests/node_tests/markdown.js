@@ -5,6 +5,8 @@ zrequire('marked', 'third/marked/lib/marked');
 zrequire('util');
 zrequire('fenced_code');
 zrequire('stream_data');
+zrequire('topic_data');
+zrequire('unread');
 zrequire('people');
 zrequire('user_groups');
 zrequire('emoji_codes', 'generated/emoji/emoji_codes');
@@ -151,6 +153,18 @@ stream_data.add_sub('Denmark', denmark);
 stream_data.add_sub('social', social);
 stream_data.add_sub('Bobby <h1>Tables</h1>', edgecase_stream);
 
+var topic_data = global.topic_data;
+topic_data.add_message({
+    stream_id: denmark.stream_id,
+    message_id: 1,
+    topic_name: 'copenhagen',
+});
+topic_data.add_message({
+    stream_id: denmark.stream_id,
+    message_id: 2,
+    topic_name: 'Randers',
+});
+
 // Check the default behavior of fenced code blocks
 // works properly before markdown is initialized.
 run_test('fenced_block_defaults', () => {
@@ -296,6 +310,10 @@ run_test('marked', () => {
          expected: '<p>And this is a #**wrong** stream link</p>'},
         {input: 'mmm...:burrito:s',
          expected: '<p>mmm...<img alt=":burrito:" class="emoji" src="/static/generated/emoji/images/emoji/burrito.png" title="burrito">s</p>'},
+        {input: 'This is a #**Denmark>copenhagen** and #**Denmark>Randers** stream topic mention',
+         expected: '<p>This is a <a class="topic" data-stream-id="1" data-topic-name="copenhagen" href="http://zulip.zulipdev.com/#narrow/stream/1-Denmark/topic/copenhagen">#Denmark&gt;copenhagen</a> and <a class="topic" data-stream-id="1" data-topic-name="Randers" href="http://zulip.zulipdev.com/#narrow/stream/1-Denmark/topic/Randers">#Denmark&gt;Randers</a> stream topic mention</p>'},
+        {input: 'And this is a wrong #**stream**>topic link',
+         expected: '<p>And this is a wrong #**stream**&gt;topic link</p>'},
         {input: 'This is an :poop: message',
          expected: '<p>This is an <span aria-label="poop" class="emoji emoji-1f4a9" role="img" title="poop">:poop:</span> message</p>'},
         {input: "\ud83d\udca9",

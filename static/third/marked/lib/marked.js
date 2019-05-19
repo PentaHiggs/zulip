@@ -452,6 +452,7 @@ var inline = {
   unicodeemoji: noop,
   usermention: noop,
   groupmention: noop,
+  topic: noop,
   stream: noop,
   avatar: noop,
   tex: noop,
@@ -518,6 +519,7 @@ inline.zulip = merge({}, inline.breaks, {
                        '[\u3000-\u303F]|[\u3200-\u32FF])'),
   usermention: /^((_?)@(?:\*\*([^\*]+)\*\*))/, // Match potentially multi-word string between @** **
   groupmention: /^@\*([^\*]+)\*/, // Match multi-word string between @* *
+  topic: /^#\*\*([^\*>]+)>([^\*]+)\*\*/,
   stream: /^#\*\*([^\*]+)\*\*/,
   avatar: /^!avatar\(([^)]+)\)/,
   gravatar: /^!gravatar\(([^)]+)\)/,
@@ -608,7 +610,6 @@ InlineLexer.prototype.output = function(src) {
     , text
     , href
     , cap;
-
   while (src) {
     // escape
     if (cap = this.rules.escape.exec(src)) {
@@ -717,6 +718,24 @@ InlineLexer.prototype.output = function(src) {
       src = src.substring(cap[0].length);
       out += this.groupmention(cap[1], cap[0]);
       continue;
+    }
+
+
+    // topic (zulip)
+    if (cap = this.rules.topic.exec(src)) {
+      var ret = this.topic(cap[1], cap[2], cap[0]);
+      var orig_src = src;
+      src = src.substring(cap[0].length);
+
+      // Fallthrough to stream mention if topic regex succeeds but
+      // this.topic fails, continuing only if lookup succeeds.
+      if (ret !== escape(cap[0])) {
+          out += ret;
+          continue;
+      } else if (cap = this.rules.stream.exec(orig_src)) {
+        out += this.stream(cap[1], cap[0]);
+        continue;
+      }
     }
 
     // stream (zulip)
@@ -896,6 +915,19 @@ InlineLexer.prototype.groupmention = function (groupname, orig) {
     return handled;
   }
 
+  return orig;
+};
+
+InlineLexer.prototype.topic = function(streamName, topicName, orig) {
+  orig = escape(orig);
+  if (typeof this.options.topicHandler !== 'function') {
+    return orig;
+  }
+
+  var handled = this.options.topicHandler(streamName, topicName);
+  if (handled !== undefined) {
+    return handled;
+  }
   return orig;
 };
 

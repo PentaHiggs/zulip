@@ -197,6 +197,25 @@ function handleAvatar(email) {
            ' title="' + email + '">';
 }
 
+function handleTopic(streamName, topicName) {
+    var stream = stream_data.get_sub(streamName);
+    if (stream === undefined) {
+        return;
+    }
+
+    var topics = topic_data.get_recent_names(stream.stream_id);
+    if (topics.indexOf(topicName) === -1) {
+        return;
+    }
+
+    var href = window.location.origin + '/#narrow/stream/' + hash_util.encode_stream_name(stream.name);
+    href += '/topic/' + hash_util.encodeHashComponent(topicName);
+    return '<a class="topic" data-stream-id="' + stream.stream_id + '" ' +
+        'data-topic-name="' + escape(topicName) + '" ' +
+        'href="' + href + '"' +
+        '>' + '#' + escape(stream.name + '>' + topicName) + '</a>';
+}
+
 function handleStream(streamName) {
     var stream = stream_data.get_sub(streamName);
     if (stream === undefined) {
@@ -446,6 +465,7 @@ exports.initialize = function () {
         emojiHandler: handleEmoji,
         avatarHandler: handleAvatar,
         unicodeEmojiHandler: handleUnicodeEmoji,
+        topicHandler: handleTopic,
         streamHandler: handleStream,
         realmFilterHandler: handleRealmFilter,
         texHandler: handleTex,
