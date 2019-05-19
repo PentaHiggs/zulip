@@ -354,7 +354,6 @@ exports.compose_content_begins_typeahead = function (query) {
         return false;
     }
     var rest = split[1];
-
     // If the remaining content after the mention isn't a space or
     // punctuation (or end of the message), don't try to typeahead; we
     // probably just have the cursor in the middle of an
@@ -550,7 +549,7 @@ exports.content_typeahead_selected = function (item) {
         beginning += '#**' + item.name + '** ';
         $(document).trigger('streamname_completed.zulip', {stream: item});
     } else if (this.completing === 'topic') {
-        beginning = beginning.substring(0, beginning.length - this.token.length - 1);
+        beginning = beginning.substring(0, beginning.length - this.token.length);
 
         if (beginning.endsWith(' ')) {
             beginning = beginning.substring(0, beginning.length - 1);

@@ -392,7 +392,7 @@ run_test('content_typeahead_selected', () => {
         '#**OtherMention** otherText #**Sweden>Stockholm** '
     );
 
-    var test_query = 'Hashtags #Angle brackets >  #Sweden> St textAfterCaret>#';
+    var test_query = 'Hashtags #Angle brackets >  #Sweden>St textAfterCaret>#';
     fake_this.$element.caret = () => {return test_query.indexOf(' textAfterCaret>#');};
     test_topic(
         test_query,
