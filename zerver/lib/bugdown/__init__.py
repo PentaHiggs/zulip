@@ -34,9 +34,10 @@ from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import translate_emoticons, emoticon_regex
 from zerver.lib.mention import possible_mentions, \
     possible_user_group_mentions, extract_user_group
-from zerver.lib.url_encoding import encode_stream
+from zerver.lib.url_encoding import encode_stream, hash_util_encode
 from zerver.lib.thumbnail import user_uploads_or_external
 from zerver.lib.timeout import timeout, TimeoutExpired
+
 from zerver.lib.cache import cache_with_key, NotFoundInCache
 from zerver.lib.url_preview import preview as link_preview
 from zerver.models import (
@@ -86,6 +87,15 @@ STREAM_LINK_REGEX = r"""
                          (?P<stream_name>[^\*]+)  # stream name can contain anything
                      \*\*                         # ends by double asterisks
                     """
+
+STREAM_TOPIC_LINK_REGEX = r"""
+                     (?<![^\s'"\(,:<])            # Start after whitespace or specified chars
+                     \#\*\*                       # and after hash sign followed by double asterisks
+                         (?P<stream_name>[^\*>]+) # stream name can contain anything besides '>' and '*'
+                     >(?P<topic_name>[^\*]+)      # topic name can contain anything besides '*'
+                     \*\*                         # ends by double asterisks
+                    """
+
 
 LINK_REGEX = None  # type: Pattern
 
@@ -1598,6 +1608,39 @@ def possible_linked_stream_names(content: str) -> Set[str]:
     matches = re.findall(STREAM_LINK_REGEX, content, re.VERBOSE)
     return set(matches)
 
+class StreamTopicPattern(VerbosePattern):
+    def find_stream_topic_pair(self, stream_name: Match[str], topic_name: Match[str]) -> Optional[Dict[str, str, int]]:
+
+        db_data = self.markdown.zulip_db_data
+        if db_data is None:
+            return None
+        topic_stream_pair = (topic_name, stream_name)
+        stream_id = db_data['topics'].get(topic_stream_pair)
+        return stream_name, topic_name, stream_id
+
+    def handleMatch(self, m: Match[str]) -> Optional[Element]:
+        stream_name = m.group('stream_name')
+        topic_name = m.group('topic_name')
+
+        if self.markdown.zulip_message:
+            stream, topic, stream_id = self.find_stream_topic_pair(stream_name, topic_name)
+            if stream_id is None:
+                return None # Or, we may want to instead just fallback to a stream mention.
+            el = markdown.util.etree.Element('a')
+            el.set('class', 'topic')
+            el.set('data-stream-id', str(stream_id))
+            el.set('data-topic-name', topic)  # Maybe we escape/encode this? [ most likely ]
+            stream_url = encode_stream(stream_id, stream)
+            topic_url = hash_util_encode(topic)
+            el.set('href', f'/#narrow/stream/{stream_url}/{topic_url}')
+            el.text = f'#{stream}>{topic}'
+            return el
+        return None
+
+def possible_stream_names_in_topic_links(content: str) -> Set[str]:
+    matches = re.findall(STREAM_TOPIC_LINK_REGEX, content, re.VERBOSE)
+    return set([match[0] for match in matches])
+
 class AlertWordsNotificationProcessor(markdown.preprocessors.Preprocessor):
     def run(self, lines: Iterable[str]) -> Iterable[str]:
         db_data = self.markdown.zulip_db_data
@@ -2049,8 +2092,22 @@ def get_stream_name_info(realm: Realm, stream_names: Set[str]) -> Dict[str, Full
     }
     return dct
 
+def get_topic_streamname_info(userProfile: UserProfile,
+                               topic_stream_names: List[str],
+                               stream_name_info: Dict[str, FullNameInfo]) -> Dict[Tuple(str, str), int]]:
 
-def do_convert(content: str,
+    topic_streamid_tuples = get_topic_streamid_tuples(
+        UserProfile,
+        [stream_name_info[stream_name]['id'] for stream_name in topic_stream_names],
+    )
+
+    stream_name_by_id = {stream['id'] : stream['name'] for stream in stream_name_info.values()}
+
+    # { (topic_name, stream_name) : stream_id }
+    pairs = { (tup[0], stream_name_by_id[tup[1]]) : tup[1], for tup in topic_streamid_tuples }
+    return pairs
+
+def do_convert(content: str
                message: Optional[Message]=None,
                message_realm: Optional[Realm]=None,
                possible_words: Optional[Set[str]]=None,
@@ -2114,8 +2171,17 @@ def do_convert(content: str,
         emails = possible_avatar_emails(content)
         email_info = get_email_info(message_realm.id, emails)
 
+        topic_stream_names = possible_stream_names_in_topic_links(content)
+
         stream_names = possible_linked_stream_names(content)
+        stream_names |= topic_stream_names
         stream_name_info = get_stream_name_info(message_realm, stream_names)
+
+        topic_streamname_info = get_topic_streamname_info(
+            message.UserProfile,
+            topic_stream_names,
+            stream_name_info)
+
 
         if content_has_emoji_syntax(content):
             active_realm_emoji = message_realm.get_active_emoji()
@@ -2130,6 +2196,7 @@ def do_convert(content: str,
             'realm_uri': message_realm.uri,
             'sent_by_bot': sent_by_bot,
             'stream_names': stream_name_info,
+            'topics': topic_streamname_info,
             'translate_emoticons': translate_emoticons,
         }
 

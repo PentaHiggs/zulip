@@ -207,6 +207,36 @@ def get_topic_history_for_stream(user_profile: UserProfile,
 
     return generate_topic_history_from_db_rows(rows)
 
+def get_topic_streamid_tuples(user_profile: UserProfile, stream_ids: List[int]) -> List[Tuple[str, int]]:
+    cursor = connection.cursor()
+    query = '''
+    SELECT DISTINCT ON (topic, stream_id)
+        "zerver_message"."subject" as topic,
+        "zerver_recipient"."type_id" as stream_id
+    FROM "zerver_message"
+    INNER JOIN "zerver_usermessage" ON (
+        "zerver_usermessage"."message_id" = "zerver_message"."id" AND
+        "zerver_usermessage"."user_profile_id" = %s
+    )
+    INNER JOIN "zerver_recipient" ON (
+        "zerver_recipient"."id" = "zerver_usermessage"."message_id" AND
+        "zerver_recipient"."type" = 2
+    )
+    WHERE (
+        "zerver_recipient"."type_id" IN %s
+    )
+    '''
+    stream_ids_str = "("
+    stream_ids_str.join([f'{stream_id}, ' for stream_id in stream_ids])
+    stream_ids_str += ")"
+
+    cursor.execute(query, UserProfile.id, stream_ids_str)
+    rows = cursor.fetchall()
+    cursor.close()
+
+    # Topic names should be case insensitive; return lowercase to avoid code depending on case
+    return [(row[0].lower(), row[1]) for row in rows]
+
 def get_topic_history_for_web_public_stream(recipient: Recipient) -> List[Dict[str, Any]]:
     cursor = connection.cursor()
     query = '''
